@@ -21,6 +21,7 @@ mod dlog_macro {
     }
 }
 
+mod autostart;
 mod config;
 mod dlog;
 mod geometry;
@@ -50,6 +51,7 @@ const WM_TRAY: u32 = WM_APP + 1;
 // Menu command identifiers.
 const ID_ENABLED: usize = 1;
 const ID_BRING_FRONT: usize = 2;
+const ID_AUTOSTART: usize = 3;
 const ID_MOD_CTRL_ALT: usize = 10;
 const ID_MOD_ALT: usize = 11;
 const ID_MOD_CTRL_WIN: usize = 12;
@@ -390,6 +392,7 @@ fn show_menu(hwnd: HWND) {
                 "Bring window to front",
                 a.bring_to_front.get(),
             );
+            append(menu, ID_AUTOSTART, "Start at login", autostart::is_enabled());
             append_separator(menu);
             let m = a.modifier.get();
             append(menu, ID_MOD_CTRL_ALT, "Modifier: Ctrl + Alt", m == Modifier::CtrlAlt);
@@ -421,6 +424,7 @@ fn handle_command(hwnd: HWND, cmd: usize) {
     APP.with(|a| match cmd {
         ID_ENABLED => a.enabled.set(!a.enabled.get()),
         ID_BRING_FRONT => a.bring_to_front.set(!a.bring_to_front.get()),
+        ID_AUTOSTART => autostart::toggle(),
         ID_MOD_CTRL_ALT => a.modifier.set(Modifier::CtrlAlt),
         ID_MOD_ALT => a.modifier.set(Modifier::Alt),
         ID_MOD_CTRL_WIN => a.modifier.set(Modifier::CtrlWin),

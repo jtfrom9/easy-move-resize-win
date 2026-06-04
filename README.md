@@ -29,6 +29,7 @@ Windows に移植したものです。修飾キーを押しながらウィンド
 
 - **Enabled** … 機能全体の有効/無効
 - **Bring window to front** … 操作時にウィンドウを前面に出す
+- **Start at login** … ログイン時に自動起動（HKCU の Run キーに登録、管理者不要）
 - **Modifier** … 修飾キーの選択（Ctrl+Alt / Alt / Ctrl+Win）
 - **Quit** … 終了
 
