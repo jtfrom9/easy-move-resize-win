@@ -12,7 +12,17 @@
 
 #![cfg_attr(not(test), windows_subsystem = "windows")]
 
+#[macro_use]
+mod dlog_macro {
+    /// `log!("fmt", ..)` — timestamped diagnostic line. Compiled in but inert
+    /// unless the `EMR_LOG` environment variable is set (see [`crate::dlog`]).
+    macro_rules! log {
+        ($($arg:tt)*) => { $crate::dlog::write(format_args!($($arg)*)) };
+    }
+}
+
 mod config;
+mod dlog;
 mod geometry;
 
 use std::cell::Cell;
@@ -48,7 +58,7 @@ const ID_QUIT: usize = 99;
 const TIP_TEXT: &str = "Easy Move+Resize";
 
 /// The gesture currently in progress.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Mode {
     Move,
     Resize,
@@ -109,17 +119,21 @@ fn modifiers_held(m: Modifier) -> bool {
     }
 }
 
-/// Window classes we must never move/resize: the desktop and the shell's
-/// taskbar(s). Dragging these around is never intended and just fights the shell.
-fn is_shell_class(hwnd: HWND) -> bool {
+/// The window class name of `hwnd` as a Rust string (empty on failure).
+fn class_name(hwnd: HWND) -> String {
     let mut buf = [0u16; 64];
     let len = unsafe { GetClassNameW(hwnd, &mut buf) };
     if len <= 0 {
-        return false;
+        return String::new();
     }
-    let name = String::from_utf16_lossy(&buf[..len as usize]);
+    String::from_utf16_lossy(&buf[..len as usize])
+}
+
+/// Window classes we must never move/resize: the desktop and the shell's
+/// taskbar(s). Dragging these around is never intended and just fights the shell.
+fn is_shell_class(hwnd: HWND) -> bool {
     matches!(
-        name.as_str(),
+        class_name(hwnd).as_str(),
         "Shell_TrayWnd" | "Shell_SecondaryTrayWnd" | "Progman" | "WorkerW"
     )
 }
@@ -152,9 +166,9 @@ fn window_rect(hwnd: HWND) -> Option<Rect> {
 }
 
 /// Reposition/resize `hwnd` without changing its Z-order or activation.
-fn place_window(hwnd: HWND, r: Rect) {
+fn place_window(hwnd: HWND, r: Rect) -> windows::core::Result<()> {
     unsafe {
-        let _ = SetWindowPos(
+        SetWindowPos(
             hwnd,
             None,
             r.x,
@@ -162,7 +176,7 @@ fn place_window(hwnd: HWND, r: Rect) {
             r.w,
             r.h,
             SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOSENDCHANGING,
-        );
+        )
     }
 }
 
@@ -185,17 +199,35 @@ fn handle_mouse(a: &AppState, msg: u32, pt: POINT) -> bool {
 /// actually began on a manageable window.
 fn begin_drag(a: &AppState, pt: POINT, mode: Mode) -> bool {
     if !a.enabled.get() || a.drag.get().is_some() || !modifiers_held(a.modifier.get()) {
+        if dlog::enabled() {
+            let fg = unsafe { GetForegroundWindow() };
+            log!(
+                "begin {:?} bail: enabled={} active={} modifier={:?} ctrl={} alt={} lwin={} rwin={} | fg-class='{}'",
+                mode,
+                a.enabled.get(),
+                a.drag.get().is_some(),
+                a.modifier.get(),
+                key_down(VK_CONTROL),
+                key_down(VK_MENU),
+                key_down(VK_LWIN),
+                key_down(VK_RWIN),
+                class_name(fg)
+            );
+        }
         return false;
     }
     let Some(hwnd) = target_window(pt) else {
+        log!("begin {:?} bail: no target window at ({},{})", mode, pt.x, pt.y);
         return false;
     };
     // Leave maximized windows alone; moving/resizing them via SetWindowPos
     // produces confusing results.
     if unsafe { IsZoomed(hwnd).as_bool() } {
+        log!("begin {:?} bail: window is maximized", mode);
         return false;
     }
     let Some(orig) = window_rect(hwnd) else {
+        log!("begin {:?} bail: GetWindowRect failed", mode);
         return false;
     };
     let edges = match mode {
@@ -216,6 +248,21 @@ fn begin_drag(a: &AppState, pt: POINT, mode: Mode) -> bool {
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
             );
         }
+    }
+    if dlog::enabled() {
+        log!(
+            "begin {:?} START hwnd={:#x} class='{}' orig=({},{},{},{}) start=({},{}) edges={:?}",
+            mode,
+            hwnd.0 as usize,
+            class_name(hwnd),
+            orig.x,
+            orig.y,
+            orig.w,
+            orig.h,
+            pt.x,
+            pt.y,
+            edges
+        );
     }
     a.drag.set(Some(Drag {
         hwnd,
@@ -241,7 +288,12 @@ fn update_drag(a: &AppState, pt: POINT) -> bool {
     let dx = pt.x - d.start.x;
     let dy = pt.y - d.start.y;
     let r = drag_result(d.orig, d.edges, d.mode == Mode::Resize, dx, dy);
-    place_window(d.hwnd, r);
+    if let Err(e) = place_window(d.hwnd, r) {
+        log!(
+            "update {:?} pt=({},{}) d=({},{}) -> ({},{},{},{}) setpos=ERR {}",
+            d.mode, pt.x, pt.y, dx, dy, r.x, r.y, r.w, r.h, e
+        );
+    }
     true
 }
 
@@ -249,6 +301,7 @@ fn update_drag(a: &AppState, pt: POINT) -> bool {
 fn end_drag(a: &AppState, mode: Mode) -> bool {
     match a.drag.get() {
         Some(d) if d.mode == mode => {
+            log!("end {:?}", mode);
             a.drag.set(None);
             true
         }
@@ -394,9 +447,11 @@ fn tray_data(hwnd: HWND) -> NOTIFYICONDATAW {
 }
 
 fn main() -> windows::core::Result<()> {
+    dlog::init();
     unsafe {
         // Operate in physical pixels so hook coordinates match SetWindowPos.
-        let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        let dpi = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        log!("startup: SetProcessDpiAwarenessContext(PER_MONITOR_V2) = {:?}", dpi);
 
         let hinstance = HINSTANCE(GetModuleHandleW(None)?.0);
 
@@ -430,6 +485,7 @@ fn main() -> windows::core::Result<()> {
         // WH_MOUSE_LL is a global hook whose procedure lives in this EXE; the
         // documented hmod for a low-level hook is NULL.
         let _hook = SetWindowsHookExW(WH_MOUSE_LL, Some(mouse_proc), HINSTANCE::default(), 0)?;
+        log!("startup: WH_MOUSE_LL hook installed; entering message loop");
 
         // Standard message loop. GetMessageW returns 0 on WM_QUIT and -1 on
         // error; either way we stop and tear the tray icon down.
