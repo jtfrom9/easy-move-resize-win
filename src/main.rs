@@ -25,6 +25,7 @@ mod autostart;
 mod config;
 mod dlog;
 mod geometry;
+mod overlay;
 
 use std::cell::Cell;
 
@@ -280,6 +281,7 @@ fn begin_drag(a: &AppState, pt: POINT, mode: Mode) -> bool {
         orig,
         edges,
     }));
+    overlay::show(orig);
     true
 }
 
@@ -292,6 +294,7 @@ fn update_drag(a: &AppState, pt: POINT) -> bool {
     // the gesture so we stop acting on a stale handle and swallowing input.
     if !unsafe { IsWindow(d.hwnd).as_bool() } {
         a.drag.set(None);
+        overlay::hide();
         return false;
     }
     let dx = pt.x - d.start.x;
@@ -303,6 +306,7 @@ fn update_drag(a: &AppState, pt: POINT) -> bool {
             d.mode, pt.x, pt.y, dx, dy, r.x, r.y, r.w, r.h, e
         );
     }
+    overlay::update(r);
     true
 }
 
@@ -312,6 +316,7 @@ fn end_drag(a: &AppState, mode: Mode) -> bool {
         Some(d) if d.mode == mode => {
             log!("end {:?}", mode);
             a.drag.set(None);
+            overlay::hide();
             true
         }
         _ => false,
@@ -502,6 +507,8 @@ fn main() -> windows::core::Result<()> {
             hinstance,
             None,
         )?;
+
+        overlay::init(hinstance);
 
         let nid = tray_data(hwnd);
         let _ = Shell_NotifyIconW(NIM_ADD, &nid);
