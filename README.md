@@ -1,4 +1,15 @@
+<div align="center">
+
+<img src="assets/logo.png" width="140" alt="Easy Move+Resize ロゴ">
+
 # Easy Move+Resize (Windows 版)
+
+![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D6?logo=windows&logoColor=white)
+![Rust](https://img.shields.io/badge/built%20with-Rust-CE412B?logo=rust&logoColor=white)
+![Win32](https://img.shields.io/badge/API-windows--rs-1E3A8A)
+![License](https://img.shields.io/badge/license-MIT-blue)
+
+</div>
 
 macOS の [dmarcotte/easy-move-resize](https://github.com/dmarcotte/easy-move-resize) を
 Windows に移植したものです。修飾キーを押しながらウィンドウの **どこでもドラッグ** することで、

@@ -435,6 +435,18 @@ fn handle_command(hwnd: HWND, cmd: usize) {
 // Setup / message loop
 // ---------------------------------------------------------------------------
 
+/// The embedded application icon (resource id 1), falling back to the default
+/// system icon if the resource isn't present.
+unsafe fn load_app_icon() -> HICON {
+    let hinst = HINSTANCE(GetModuleHandleW(None).unwrap_or_default().0);
+    // MAKEINTRESOURCE(1): the resource name is the integer id 1, encoded as a
+    // pointer-sized address (not a real pointer that gets dereferenced).
+    let id = PCWSTR(std::ptr::without_provenance(1));
+    LoadIconW(hinst, id)
+        .or_else(|_| LoadIconW(None, IDI_APPLICATION))
+        .unwrap_or_default()
+}
+
 fn tray_data(hwnd: HWND) -> NOTIFYICONDATAW {
     let mut nid = NOTIFYICONDATAW {
         cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
@@ -444,7 +456,7 @@ fn tray_data(hwnd: HWND) -> NOTIFYICONDATAW {
         uCallbackMessage: WM_TRAY,
         ..Default::default()
     };
-    nid.hIcon = unsafe { LoadIconW(None, IDI_APPLICATION).unwrap_or_default() };
+    nid.hIcon = unsafe { load_app_icon() };
     for (i, c) in TIP_TEXT.encode_utf16().enumerate() {
         if i >= nid.szTip.len() - 1 {
             break;
