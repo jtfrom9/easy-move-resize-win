@@ -188,7 +188,14 @@ fn handle_mouse(a: &AppState, msg: u32, pt: POINT) -> bool {
     match msg {
         WM_LBUTTONDOWN => begin_drag(a, pt, Mode::Move),
         WM_RBUTTONDOWN => begin_drag(a, pt, Mode::Resize),
-        WM_MOUSEMOVE => update_drag(a, pt),
+        // Reposition the window from the move, but NEVER swallow WM_MOUSEMOVE: a
+        // low-level hook that returns non-zero for a mouse-move stops the system
+        // from advancing the cursor, freezing it at the grab point (the window
+        // then only jitters around its start). Always let the move pass through.
+        WM_MOUSEMOVE => {
+            update_drag(a, pt);
+            false
+        }
         WM_LBUTTONUP => end_drag(a, Mode::Move),
         WM_RBUTTONUP => end_drag(a, Mode::Resize),
         _ => false,
@@ -314,7 +321,8 @@ fn end_drag(a: &AppState, mode: Mode) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Low-level mouse hook. Runs on the message-loop thread for every mouse event
-/// system-wide; consumes the event (returns 1) only while we are driving a drag.
+/// system-wide; consumes only the button down/up that start and end a gesture,
+/// never mouse-moves (swallowing those would freeze the cursor).
 unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     if code >= 0 {
         let msg = wparam.0 as u32;
